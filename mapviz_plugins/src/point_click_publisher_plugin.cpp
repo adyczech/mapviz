@@ -107,7 +107,6 @@ namespace mapviz_plugins
     return config_widget_;
   }
 
-
   void PointClickPublisherPlugin::pointClicked(const QPointF& point)
   {
     QPointF transformed = canvas_->MapGlCoordToFixedFrame(point);
@@ -179,7 +178,6 @@ namespace mapviz_plugins
   {
     PrintWarningHelper(ui_.status, message);
   }
-
 
   void PointClickPublisherPlugin::topicChanged(const QString& topic)
   {

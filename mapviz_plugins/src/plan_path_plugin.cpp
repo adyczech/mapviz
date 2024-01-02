@@ -39,7 +39,7 @@
 #include <QStaticText>
 
 // ROS libraries
-#include <rclcpp/rclcpp.hpp>
+#include <ros/ros.h>
 
 // #include <swri_route_util/util.h>
 #include <swri_transform_util/frames.h>
@@ -81,7 +81,7 @@ namespace mapviz_plugins
   {
     ui_.setupUi(config_widget_);
 
-    ui_.color->setColor(Qt::green);
+    // ui_.color->setColor(Qt::green);
     // Set background white
     QPalette p(config_widget_->palette());
     p.setColor(QPalette::Window, Qt::white);
@@ -99,6 +99,8 @@ namespace mapviz_plugins
                      SIGNAL(VisibleChanged(bool)),
                      this,
                      SLOT(VisibilityChanged(bool)));
+    frame_timer_.start(1000);
+    QObject::connect(&frame_timer_, SIGNAL(timeout()), this, SLOT(updateFrames()));
   }
 
   PlanPathPlugin::~PlanPathPlugin()
@@ -128,86 +130,59 @@ namespace mapviz_plugins
       PrintError("Path must have at least one waypoint.");
       return;
     } 
-    auto path = nav_msgs::msg::Path();
-    path.header.frame_id = swri_transform_util::_wgs84_frame;
-    path.header.stamp = node_->now();
-    path.poses = waypoints_;
+
+    std::string output_frame = ui_.outputframe->currentText().toStdString();
+    if (output_frame.empty())
+    {
+      PrintError("Output frame is not set.");
+      return;
+    }
+
+    std::vector<geometry_msgs::PoseStamped> transformed_waypoints;
+
+    TransformFrame(transformed_waypoints, output_frame);
+
+    auto path = nav_msgs::Path();
+    // path.header.frame_id = swri_transform_util::_wgs84_frame;
+    path.header.frame_id = output_frame;
+    path.header.stamp = ros::Time::now();
+    path.poses = transformed_waypoints;
 
     if (path_topic_ != ui_.topic->text().toStdString())
       {
         path_topic_ = ui_.topic->text().toStdString();
-        path_pub_.reset();
-        path_pub_ = node_->create_publisher<nav_msgs::msg::Path>(
+        path_pub_.shutdown();
+        path_pub_ = node_.advertise<nav_msgs::Path>(
           path_topic_,
-          rclcpp::QoS(1));
+          1);
       }
 
-      path_pub_->publish(path);
+      path_pub_.publish(path);
     
   }
 
-  // void PlanPathPlugin::PlanPath()
-  // {
-  //   route_preview_ = sru::PathPtr();
-  //   bool start_from_vehicle = ui_.start_from_vehicle->isChecked();
-  //   if (waypoints_.size() + start_from_vehicle < 2 || !Visible())
-  //   {
-  //     return;
-  //   }
+  void PlanPathPlugin::TransformFrame(std::vector<geometry_msgs::PoseStamped>& transformed_waypoints, const std::string& output_frame)
+  {
+    stu::Transform transform;
+    if (tf_manager_->GetTransform(output_frame, stu::_wgs84_frame, transform))
+    {
+      for (auto & waypoint : waypoints_)
+      {
+        tf::Vector3 point(waypoint.pose.position.x, waypoint.pose.position.y, 0);
+        point = transform * point;
+        geometry_msgs::PoseStamped pose;
+        pose.pose.position.x = point.x();
+        pose.pose.position.y = point.y();
+        transformed_waypoints.push_back(pose);
+      }
+    }
+    else
+    {
+      PrintError("Failed to transform.");
+    }
 
-  //   // std::string service = ui_.service->text().toStdString();
-  //   // if (service.empty())
-  //   // {
-  //   //   PrintError("Service name may not be empty.");
-  //   //   return;
-  //   // }
-  //   // auto client = node_->create_client<marti_nav_msgs::srv::PlanPath>(service);
-  //   // client->wait_for_service(1ms);
+  }
 
-  //   // if (!client->service_is_ready())
-  //   // {
-  //   //   PrintError("Service is unavailable.");
-  //   //   return;
-  //   // }
-
-  //   // auto plan_route = std::make_shared<marti_nav_msgs::srv::PlanPath::Request>();
-
-  //   plan_route->header.frame_id = swri_transform_util::_wgs84_frame;
-  //   plan_route->header.stamp = node_->now();
-  //   plan_route->plan_from_vehicle = static_cast<unsigned char>(start_from_vehicle);
-  //   plan_route->waypoints = waypoints_;
-
-  //   // PrintInfo("Sending route...");
-  //   // auto result = client->async_send_request(plan_route,
-  //   //     std::bind(&PlanPathPlugin::ClientCallback, this, std::placeholders::_1));
-  // }
-
-  // void PlanPathPlugin::ClientCallback(
-  //   rclcpp::Client<marti_nav_msgs::srv::PlanPath>::SharedFuture future)
-  // {
-  //   RCLCPP_ERROR(node_->get_logger(), "Request callback happened");
-  //   const auto& result = future.get();
-  //   if (future.valid())
-  //   {
-  //     if (result->success)
-  //     {
-  //       PrintInfo("OK");
-  //       route_preview_ = std::make_shared<swri_route_util::Path>(result->route);
-  //       failed_service_ = false;
-  //     } else {
-  //       PrintError(result->message);
-  //       failed_service_ = true;
-  //     }
-  //   } else {
-  //     PrintError("Error calling PlanPath service");
-  //     failed_service_ = true;
-  //   }
-  // }
-
-  // void PlanPathPlugin::Retry()
-  // {
-  //   PlanPath();
-  // }
 
   void PlanPathPlugin::Clear()
   {
@@ -248,6 +223,57 @@ namespace mapviz_plugins
     return true;
   }
 
+  void PlanPathPlugin::updateFrames()
+  {
+    std::vector<std::string> frames;
+    tf_->getFrameStrings(frames);
+
+    bool supports_wgs84 = tf_manager_->SupportsTransform(
+        swri_transform_util::_local_xy_frame,
+        swri_transform_util::_wgs84_frame);
+
+    if (supports_wgs84)
+    {
+      frames.push_back(swri_transform_util::_wgs84_frame);
+    }
+
+    if (ui_.outputframe->count() >= 0 &&
+        static_cast<size_t>(ui_.outputframe->count()) == frames.size())
+    {
+      bool changed = false;
+      for (size_t i = 0; i < frames.size(); i++)
+      {
+        if (frames[i] != ui_.outputframe->itemText(static_cast<int>(i)).toStdString())
+        {
+          changed = true;
+        }
+      }
+
+      if (!changed)
+        return;
+    }
+
+    std::string current_output = ui_.outputframe->currentText().toStdString();
+
+    ui_.outputframe->clear();
+    for (size_t i = 0; i < frames.size(); i++)
+    {
+      ui_.outputframe->addItem(frames[i].c_str());
+    }
+
+    if (current_output != "")
+    {
+      int index = ui_.outputframe->findText(current_output.c_str());
+      if (index < 0)
+      {
+        ui_.outputframe->addItem(current_output.c_str());
+      }
+
+      index = ui_.outputframe->findText(current_output.c_str());
+      ui_.outputframe->setCurrentIndex(index);
+    }
+  }
+
   bool PlanPathPlugin::eventFilter(QObject *object, QEvent* event)
   {
     switch (event->type())
@@ -275,7 +301,7 @@ namespace mapviz_plugins
     {
       for (size_t i = 0; i < waypoints_.size(); i++)
       {
-        tf2::Vector3 waypoint(
+        tf::Vector3 waypoint(
             waypoints_[i].pose.position.x,
             waypoints_[i].pose.position.y,
             0.0);
@@ -327,7 +353,7 @@ namespace mapviz_plugins
       if (tf_manager_->GetTransform(stu::_wgs84_frame, target_frame_, transform))
       {
         QPointF transformed = map_canvas_->MapGlCoordToFixedFrame(point);
-        tf2::Vector3 position(transformed.x(), transformed.y(), 0.0);
+        tf::Vector3 position(transformed.x(), transformed.y(), 0.0);
         position = transform * position;
         waypoints_[selected_point_].pose.position.x = position.x();
         waypoints_[selected_point_].pose.position.y = position.y();
@@ -349,12 +375,12 @@ namespace mapviz_plugins
         QPointF transformed = map_canvas_->MapGlCoordToFixedFrame(point);
 
         stu::Transform transform;
-        tf2::Vector3 position(transformed.x(), transformed.y(), 0.0);
+        tf::Vector3 position(transformed.x(), transformed.y(), 0.0);
         if (tf_manager_->GetTransform(stu::_wgs84_frame, target_frame_, transform))
         {
           position = transform * position;
 
-          geometry_msgs::msg::PoseStamped pose;
+          geometry_msgs::PoseStamped pose;
           pose.pose.position.x = position.x();
           pose.pose.position.y = position.y();
           waypoints_.push_back(pose);
@@ -376,7 +402,7 @@ namespace mapviz_plugins
       if (tf_manager_->GetTransform(stu::_wgs84_frame, target_frame_, transform))
       {
         QPointF transformed = map_canvas_->MapGlCoordToFixedFrame(point);
-        tf2::Vector3 position(transformed.x(), transformed.y(), 0.0);
+        tf::Vector3 position(transformed.x(), transformed.y(), 0.0);
         position = transform * position;
         waypoints_[selected_point_].pose.position.y = position.y();
         waypoints_[selected_point_].pose.position.x = position.x();
@@ -422,7 +448,7 @@ namespace mapviz_plugins
 
       for (auto & waypoint : waypoints_)
       {
-        tf2::Vector3 point(waypoint.pose.position.x, waypoint.pose.position.y, 0);
+        tf::Vector3 point(waypoint.pose.position.x, waypoint.pose.position.y, 0);
         point = transform * point;
         glVertex2d(point.x(), point.y());
       }
@@ -446,7 +472,7 @@ namespace mapviz_plugins
     {
       for (size_t i = 0; i < waypoints_.size(); i++)
       {
-        tf2::Vector3 point(waypoints_[i].pose.position.x, waypoints_[i].pose.position.y, 0);
+        tf::Vector3 point(waypoints_[i].pose.position.x, waypoints_[i].pose.position.y, 0);
         point = transform * point;
         QPointF gl_point = map_canvas_->FixedFrameToMapGlCoord(QPointF(point.x(), point.y()));
         QPointF corner(gl_point.x() - 20, gl_point.y() - 20);
@@ -468,16 +494,16 @@ namespace mapviz_plugins
       std::string path_topic = node["path_topic"].as<std::string>();
       ui_.topic->setText(path_topic.c_str());
     }
-    if (node["color"])
-    {
-      std::string color = node["color"].as<std::string>();
-      ui_.color->setColor(QColor(color.c_str()));
-    }
-    if (node["start_from_vehicle"])
-    {
-      bool start_from_vehicle = node["start_from_vehicle"].as<bool>();
-      ui_.start_from_vehicle->setChecked(start_from_vehicle);
-    }
+    // if (node["color"])
+    // {
+    //   std::string color = node["color"].as<std::string>();
+    //   ui_.color->setColor(QColor(color.c_str()));
+    // }
+    // if (node["start_from_vehicle"])
+    // {
+      // bool start_from_vehicle = node["start_from_vehicle"].as<bool>();
+      // ui_.start_from_vehicle->setChecked(start_from_vehicle);
+    // }
 
     // PlanPath();
   }
@@ -487,10 +513,10 @@ namespace mapviz_plugins
     std::string path_topic = ui_.topic->text().toStdString();
     emitter << YAML::Key << "path_topic" << YAML::Value << path_topic;
 
-    std::string color = ui_.color->color().name().toStdString();
-    emitter << YAML::Key << "color" << YAML::Value << color;   
+    // std::string color = ui_.color->color().name().toStdString();
+    // emitter << YAML::Key << "color" << YAML::Value << color;   
 
-    bool start_from_vehicle = ui_.start_from_vehicle->isChecked();
-    emitter << YAML::Key << "start_from_vehicle" << YAML::Value << start_from_vehicle;
+    // bool start_from_vehicle = ui_.start_from_vehicle->isChecked();
+    // emitter << YAML::Key << "start_from_vehicle" << YAML::Value << start_from_vehicle;
   }
 }   // namespace mapviz_plugins

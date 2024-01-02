@@ -38,7 +38,7 @@
 #include <opencv2/core/core.hpp>
 
 // ROS libraries
-#include <rclcpp/rclcpp.hpp>
+#include <ros/ros.h>
 
 #include <swri_transform_util/transform_util.h>
 #include <mapviz/select_topic_dialog.h>
@@ -100,12 +100,12 @@ namespace mapviz_plugins
 
   void PointPlugin::SelectTopic()
   {
-    std::string topic =
-        mapviz::SelectTopicDialog::selectTopic(node_, "geometry_msgs/msg/PointStamped");
+    ros::master::TopicInfo topic =
+        mapviz::SelectTopicDialog::selectTopic("geometry_msgs/PointStamped");
 
-    if (!topic.empty())
+    if (!topic.name.empty())
     {
-      ui_.topic->setText(QString::fromStdString(topic));
+      ui_.topic->setText(QString::fromStdString(topic.name));
       TopicEdited();
     }
   }
@@ -121,22 +121,22 @@ namespace mapviz_plugins
       PrintWarning("No messages received.");
 
       // pose_sub_.shutdown();
-      pose_sub_.reset();
+      pose_sub_.shutdown();
 
       topic_ = topic;
       if (!topic.empty())
       {
-        pose_sub_ = node_->create_subscription<geometry_msgs::msg::PointStamped>(
+        pose_sub_ = node_.subscribe(
           topic_,
-          rclcpp::QoS(1),
-          std::bind(&PointPlugin::PointCallback, this, std::placeholders::_1));
+          10,
+          &PointPlugin::PointCallback, this);
 
-        RCLCPP_INFO(node_->get_logger(), "Subscribing to %s", topic_.c_str());
+        ROS_INFO("Subscribing to %s", topic_.c_str());
       }
     }
   }
 
-  void PointPlugin::PointCallback(const geometry_msgs::msg::PointStamped::SharedPtr point)
+  void PointPlugin::PointCallback(const geometry_msgs::PointStamped::ConstPtr point)
   {
     if (!has_message_)
     {
@@ -148,11 +148,11 @@ namespace mapviz_plugins
     stamped_point.stamp = point->header.stamp;
     stamped_point.source_frame = point->header.frame_id;
 
-    stamped_point.point = tf2::Vector3(point->point.x,
+    stamped_point.point = tf::Point(point->point.x,
                                         point->point.y,
                                         point->point.z);
 
-    stamped_point.orientation = tf2::Quaternion(0,0,0,0);
+    stamped_point.orientation = tf::Quaternion(0,0,0,0);
 
     pushPoint( std::move(stamped_point) );
   }

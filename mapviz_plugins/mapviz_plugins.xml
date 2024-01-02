@@ -19,13 +19,8 @@
   <class name="mapviz_plugins/pose" type="mapviz_plugins::PosePlugin" base_class_type="mapviz::MapvizPlugin">
     <description>Pose mapviz plugin.</description>
   </class>
-<<<<<<< HEAD
-  <class name="mapviz_plugins/pose_array" type="mapviz_plugins::PoseArrayPlugin" base_class_type="mapviz::MapvizPlugin">
-    <description>Pose Array mapviz plugin.</description>
-=======
   <class name="mapviz_plugins/point" type="mapviz_plugins::PointPlugin" base_class_type="mapviz::MapvizPlugin">
     <description>Point mapviz plugin.</description>
->>>>>>> 1febafb... added point plugin
   </class>
   <class name="mapviz_plugins/marker" type="mapviz_plugins::MarkerPlugin" base_class_type="mapviz::MapvizPlugin">
     <description>Marker mapviz plugin.</description>

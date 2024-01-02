@@ -43,9 +43,9 @@
 #include <QWidget>
 
 // ROS libraries
-#include <rclcpp/rclcpp.hpp>
+#include <ros/ros.h>
 #include <tf2/transform_datatypes.h>
-#include <geometry_msgs/msg/point_stamped.hpp>
+#include <geometry_msgs/PointStamped.h>
 #include <swri_transform_util/local_xy_util.h>
 
 // C++ standard libraries
@@ -91,10 +91,10 @@ class PointPlugin : public mapviz_plugins::PointDrawingPlugin
 
   std::string topic_;
 
-  rclcpp::Subscription<geometry_msgs::msg::PointStamped>::SharedPtr pose_sub_;
+  ros::Subscriber pose_sub_;
   bool has_message_;
 
-  void PointCallback(const geometry_msgs::msg::PointStamped::SharedPtr pose);
+  void PointCallback(const geometry_msgs::PointStamped::ConstPtr pose);
 };
 }   // namespace mapviz_plugins
 

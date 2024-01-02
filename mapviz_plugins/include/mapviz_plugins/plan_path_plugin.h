@@ -38,7 +38,7 @@
 #include <QWidget>
 
 // ROS libraries
-#include <rclcpp/rclcpp.hpp>
+#include <ros/ros.h>
 #include <tf2/transform_datatypes.h>
 
 // Mapviz libraries
@@ -46,8 +46,8 @@
 #include <swri_route_util/route.h>
 
 // Messages
-#include <geometry_msgs/msg/pose.hpp>
-#include <nav_msgs/msg/path.hpp>
+#include <geometry_msgs/Pose.h>
+#include <nav_msgs/Path.h>
 // #include <marti_nav_msgs/msg/route.hpp>
 // #include <marti_nav_msgs/srv/plan_route.hpp>
 
@@ -76,6 +76,8 @@ class PlanPathPlugin : public mapviz::MapvizPlugin
 
   void Transform() override {};
 
+  void TransformFrame(std::vector<geometry_msgs::PoseStamped>& transformed_waypoints, const std::string& output_frame);
+  
   void LoadConfig(const YAML::Node& node, const std::string& path) override;
   void SaveConfig(YAML::Emitter& emitter, const std::string& path) override;
 
@@ -100,6 +102,7 @@ class PlanPathPlugin : public mapviz::MapvizPlugin
   // void PlanPath();
   void Clear();
   void VisibilityChanged(bool);
+  void updateFrames();
 
   private:
   // void Retry(const ros::TimerEvent& e);
@@ -113,10 +116,11 @@ class PlanPathPlugin : public mapviz::MapvizPlugin
 
   std::string path_topic_;
 
-  rclcpp::Publisher<nav_msgs::msg::Path>::SharedPtr path_pub_;
-  rclcpp::TimerBase::SharedPtr retry_timer_;
+  ros::Publisher path_pub_;
+  QTimer frame_timer_;
+  ros::Timer retry_timer_;
 
-  std::vector<geometry_msgs::msg::PoseStamped> waypoints_;
+  std::vector<geometry_msgs::PoseStamped> waypoints_;
 
   int selected_point_;
   bool is_mouse_down_;
