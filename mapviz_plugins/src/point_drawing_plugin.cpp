@@ -336,7 +336,7 @@ namespace mapviz_plugins
     }
     else
     {
-      glPointSize(6);
+      glPointSize(8);
       glBegin(GL_POINTS);
     }
 
